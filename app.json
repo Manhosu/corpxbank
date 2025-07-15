@@ -4,11 +4,11 @@
     "slug": "corpx-bank",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./CorpxBank/assets/icon.svg",
+    "icon": "./logo.png",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "splash": {
-      "image": "./CorpxBank/assets/splash.svg",
+      "image": "./logo.png",
       "resizeMode": "contain",
       "backgroundColor": "#0E0E0E"
     },
@@ -24,7 +24,7 @@
     "android": {
       "package": "com.corpxbank.app",
       "adaptiveIcon": {
-        "foregroundImage": "./CorpxBank/assets/adaptive-icon.svg",
+        "foregroundImage": "./logo.png",
         "backgroundColor": "#0E0E0E"
       },
       "edgeToEdgeEnabled": true,
@@ -39,7 +39,7 @@
       ]
     },
     "web": {
-      "favicon": "./CorpxBank/assets/favicon.svg"
+      "favicon": "./logo.png"
     },
     "plugins": [
       "expo-font",
@@ -53,8 +53,9 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "cab3ede6-b05c-4db1-b467-4e19cec00560"
+        "projectId": "e75888c9-d552-4b53-b925-707e41a517fc"
       }
-    }
+    },
+    "owner": "dudulindo"
   }
 }

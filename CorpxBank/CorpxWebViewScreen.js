@@ -19,9 +19,9 @@ import Constants from 'expo-constants';
 
 const SESSION_KEY = 'corpxbank_session';
 const LOGIN_STATUS_KEY = 'corpxbank_logged';
-const BIOMETRIC_KEY = '@biometriaAtiva';
-const LOGIN_KEY = '@login';
-const PASSWORD_KEY = '@senha';
+const BIOMETRIC_KEY = 'biometriaAtiva';
+const LOGIN_KEY = 'login';
+const PASSWORD_KEY = 'senha';
 
 export default function CorpxWebViewScreen({ navigation, route }) {
   const webViewRef = useRef(null);
@@ -139,10 +139,23 @@ export default function CorpxWebViewScreen({ navigation, route }) {
             login: data.login,
             password: data.password
           });
+          // Mostrar prompt de biometria após capturar credenciais
+          setTimeout(() => {
+            setShowBiometricPrompt(true);
+          }, 1000);
           break;
           
         case 'DOWNLOAD_FILE':
           handleFileDownload(data.url, data.filename);
+          break;
+          
+        case 'LOGIN_SUCCESS':
+          // Login bem-sucedido detectado
+          if (loginCredentials) {
+            setTimeout(() => {
+              setShowBiometricPrompt(true);
+            }, 1000);
+          }
           break;
           
         case 'LOGOUT':
@@ -214,6 +227,15 @@ export default function CorpxWebViewScreen({ navigation, route }) {
                   login: loginField.value,
                   password: passwordField.value
                 }));
+                
+                // Detectar redirecionamento após login (indicativo de sucesso)
+                setTimeout(() => {
+                  if (window.location.href !== window.location.href) {
+                    window.ReactNativeWebView.postMessage(JSON.stringify({
+                      type: 'LOGIN_SUCCESS'
+                    }));
+                  }
+                }, 2000);
               }
             } catch (error) {
               console.error('Erro ao interceptar formulário:', error);
@@ -254,6 +276,25 @@ export default function CorpxWebViewScreen({ navigation, route }) {
               console.error('Erro ao interceptar logout:', error);
             }
           });
+        });
+        
+        // Detectar mudanças na URL que indicam login bem-sucedido
+        let currentUrl = window.location.href;
+        const urlObserver = new MutationObserver(() => {
+          if (window.location.href !== currentUrl) {
+            currentUrl = window.location.href;
+            // Se saiu da página de login, provavelmente foi bem-sucedido
+            if (!currentUrl.includes('login.php') && window.ReactNativeWebView) {
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'LOGIN_SUCCESS'
+              }));
+            }
+          }
+        });
+        
+        urlObserver.observe(document.body, {
+          childList: true,
+          subtree: true
         });
         
         // Melhorar UX mobile
@@ -315,9 +356,21 @@ export default function CorpxWebViewScreen({ navigation, route }) {
     </View>
   );
 
+  const handleBackToSplash = () => {
+    navigation.replace('Splash');
+  };
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0E0E0E" />
+      
+      {/* Botão Voltar */}
+      <TouchableOpacity
+        style={styles.backButton}
+        onPress={handleBackToSplash}
+      >
+        <Text style={styles.backButtonText}>← Voltar</Text>
+      </TouchableOpacity>
       
       <WebView
         ref={webViewRef}
@@ -454,7 +507,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   promptButtonPrimary: {
-    backgroundColor: '#1976D2',
+    backgroundColor: '#2E7D32',
   },
   promptButtonSecondary: {
     backgroundColor: 'transparent',
@@ -468,6 +521,21 @@ const styles = StyleSheet.create({
   },
   promptButtonTextSecondary: {
     color: '#CCCCCC',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  backButton: {
+    position: 'absolute',
+    top: 50,
+    left: 20,
+    backgroundColor: 'rgba(46, 125, 50, 0.9)',
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    borderRadius: 20,
+    zIndex: 1000,
+  },
+  backButtonText: {
+    color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '600',
   },

@@ -4,7 +4,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import * as LocalAuthentication from 'expo-local-authentication';
 import * as SecureStore from 'expo-secure-store';
-import LoginScreen from './CorpxBank/LoginScreen';
+import SplashScreen from './CorpxBank/SplashScreen';
 import RegisterScreen from './CorpxBank/RegisterScreen';
 import CorpxWebViewScreen from './CorpxBank/CorpxWebViewScreen';
 import ErrorBoundary from './CorpxBank/ErrorBoundary';
@@ -48,26 +48,26 @@ export default function App() {
             console.log('✅ Sessão válida encontrada - redirecionando para WebView');
             setInitialRoute('WebView');
           } else {
-            console.log('⏰ Sessão expirada - redirecionando para Login');
+            console.log('⏰ Sessão expirada - redirecionando para Splash');
             // Limpar sessão expirada
             await Promise.all([
               SecureStore.deleteItemAsync(SESSION_KEY),
               SecureStore.deleteItemAsync(LOGIN_STATUS_KEY)
             ]);
-            setInitialRoute('Login');
+            setInitialRoute('Splash');
           }
         } catch (error) {
           console.error('❌ Erro ao validar sessão:', error);
-          setInitialRoute('Login');
+          setInitialRoute('Splash');
         }
       } else {
-        console.log('🔑 Nenhuma sessão encontrada - redirecionando para Login');
-        setInitialRoute('Login');
+        console.log('🔑 Nenhuma sessão encontrada - redirecionando para Splash');
+        setInitialRoute('Splash');
       }
 
     } catch (error) {
       console.error('❌ Erro ao verificar autenticação:', error);
-      setInitialRoute('Login');
+      setInitialRoute('Splash');
     } finally {
       setIsLoading(false);
     }
@@ -97,8 +97,8 @@ export default function App() {
           }}
         >
           <Stack.Screen 
-            name="Login" 
-            component={LoginScreen}
+            name="Splash" 
+            component={SplashScreen}
             options={{
               animationTypeForReplace: 'push',
             }}

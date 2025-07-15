@@ -19,11 +19,22 @@ export default function RegisterScreen({ navigation }) {
   };
 
   const handleBackToLogin = () => {
-    navigation.navigate('Login');
+    navigation.navigate('Splash');
+  };
+
+  const handleBackToSplash = () => {
+    navigation.navigate('Splash');
   };
 
   return (
     <View style={styles.container}>
+      {/* Botão Voltar */}
+      <TouchableOpacity
+        style={styles.topBackButton}
+        onPress={handleBackToSplash}
+      >
+        <Text style={styles.topBackButtonText}>← Voltar</Text>
+      </TouchableOpacity>
       {/* Logo */}
       <View style={styles.logoContainer}>
         <Image 
@@ -74,81 +85,130 @@ export default function RegisterScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0E0E0E',
+    backgroundColor: '#0A0A0A',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
   },
   logoContainer: {
-    marginBottom: 30,
+    marginBottom: 40,
     alignItems: 'center',
+    shadowColor: '#2E7D32',
+    shadowOffset: {
+      width: 0,
+      height: 8,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
   },
   logoImage: {
-    width: 120,
-    height: 120,
+    width: 140,
+    height: 140,
   },
   title: {
     color: '#FFFFFF',
-    fontSize: 24,
-    fontWeight: 'bold',
+    fontSize: 28,
+    fontWeight: '700',
     textAlign: 'center',
-    marginBottom: 10,
+    marginBottom: 12,
+    letterSpacing: 0.5,
   },
   subtitle: {
-    color: '#CCCCCC',
-    fontSize: 16,
+    color: '#E0E0E0',
+    fontSize: 17,
     textAlign: 'center',
-    marginBottom: 40,
-    lineHeight: 22,
+    marginBottom: 50,
+    lineHeight: 24,
+    fontWeight: '400',
+    letterSpacing: 0.3,
   },
   buttonsContainer: {
     width: '100%',
-    maxWidth: 300,
-    marginBottom: 30,
+    maxWidth: 320,
+    marginBottom: 40,
   },
   button: {
-    paddingVertical: 15,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    marginBottom: 15,
+    paddingVertical: 20,
+    paddingHorizontal: 24,
+    borderRadius: 16,
+    marginBottom: 16,
     alignItems: 'center',
     borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
   },
   registerButton: {
-    backgroundColor: '#1976D2',
-    borderColor: '#2196F3',
+    backgroundColor: '#2E7D32',
+    borderColor: '#4CAF50',
+    shadowColor: '#2E7D32',
   },
   backButton: {
-    backgroundColor: 'transparent',
-    borderColor: '#666666',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    shadowColor: '#FFFFFF',
+    shadowOpacity: 0.1,
   },
   buttonText: {
     color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
   backButtonText: {
-    color: '#CCCCCC',
+    color: '#E0E0E0',
+    fontWeight: '600',
   },
   infoContainer: {
-    backgroundColor: '#1A1A1A',
-    padding: 20,
-    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    padding: 24,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#333333',
+    borderColor: 'rgba(255, 255, 255, 0.15)',
     width: '100%',
-    maxWidth: 300,
+    maxWidth: 320,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
   },
   infoTitle: {
     color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 10,
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 16,
+    letterSpacing: 0.5,
   },
   infoText: {
-    color: '#CCCCCC',
-    fontSize: 14,
-    marginBottom: 5,
-    lineHeight: 20,
+    color: '#D0D0D0',
+    fontSize: 15,
+    marginBottom: 8,
+    lineHeight: 22,
+    fontWeight: '500',
+    letterSpacing: 0.3,
+  },
+  topBackButton: {
+    position: 'absolute',
+    top: 50,
+    left: 20,
+    padding: 12,
+    zIndex: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 12,
+  },
+  topBackButtonText: {
+    color: '#E0E0E0',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

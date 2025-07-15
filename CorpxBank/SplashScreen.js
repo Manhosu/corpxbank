@@ -17,34 +17,49 @@ const { width, height } = Dimensions.get('window');
 
 const SESSION_KEY = 'corpxbank_session';
 const LOGIN_STATUS_KEY = 'corpxbank_logged';
-const BIOMETRIC_KEY = '@biometriaAtiva';
-const LOGIN_KEY = '@login';
-const PASSWORD_KEY = '@senha';
+const BIOMETRIC_KEY = 'biometriaAtiva';
+const LOGIN_KEY = 'login';
+const PASSWORD_KEY = 'senha';
 
-export default function LoginScreen({ navigation }) {
+export default function SplashScreen({ navigation }) {
   const [isLoading, setIsLoading] = useState(false);
   const [biometricSupported, setBiometricSupported] = useState(false);
   const [hasBiometricData, setHasBiometricData] = useState(false);
+  const [hasLoggedInBefore, setHasLoggedInBefore] = useState(false);
 
   useEffect(() => {
     checkBiometricSupport();
     checkSavedBiometricData();
+    checkPreviousLogin();
   }, []);
 
   const checkBiometricSupport = async () => {
     try {
-      // Verificar se está rodando no Expo Go
+      // Verificar se está rodando no Expo Go ou emulador
       if (Constants.appOwnership === 'expo') {
         console.log('🔒 Biometria desabilitada no Expo Go');
         setBiometricSupported(false);
         return;
       }
 
+      // Verificar se o dispositivo tem hardware biométrico
       const compatible = await LocalAuthentication.hasHardwareAsync();
+      if (!compatible) {
+        console.log('🔒 Hardware biométrico não disponível');
+        setBiometricSupported(false);
+        return;
+      }
+
+      // Verificar se há biometrias cadastradas
       const enrolled = await LocalAuthentication.isEnrolledAsync();
+      if (!enrolled) {
+        console.log('🔒 Nenhuma biometria cadastrada no dispositivo');
+        setBiometricSupported(false);
+        return;
+      }
       
-      setBiometricSupported(compatible && enrolled);
-      console.log('🔒 Suporte biométrico:', { compatible, enrolled });
+      setBiometricSupported(true);
+      console.log('🔒 Suporte biométrico ativo:', { compatible, enrolled });
     } catch (error) {
       console.error('❌ Erro ao verificar biometria:', error);
       setBiometricSupported(false);
@@ -68,9 +83,28 @@ export default function LoginScreen({ navigation }) {
     }
   };
 
+  const checkPreviousLogin = async () => {
+    try {
+      const loginStatus = await SecureStore.getItemAsync(LOGIN_STATUS_KEY);
+      const savedLogin = await SecureStore.getItemAsync(LOGIN_KEY);
+      
+      // Se já houve login anterior ou há dados salvos, ocultar botão de cadastro
+      setHasLoggedInBefore(loginStatus === 'true' || !!savedLogin);
+    } catch (error) {
+      console.error('❌ Erro ao verificar login anterior:', error);
+      setHasLoggedInBefore(false);
+    }
+  };
+
   const handleBiometricLogin = async () => {
     try {
       setIsLoading(true);
+      
+      // Verificar novamente se a biometria está disponível
+      if (!biometricSupported) {
+        Alert.alert('Erro', 'Biometria não disponível neste dispositivo');
+        return;
+      }
       
       const result = await LocalAuthentication.authenticateAsync({
         promptMessage: 'Use sua biometria para acessar o Corpx Bank',
@@ -88,10 +122,15 @@ export default function LoginScreen({ navigation }) {
         } else {
           Alert.alert('Erro', 'Dados de login não encontrados');
         }
+      } else if (result.error) {
+        console.log('🔒 Autenticação biométrica cancelada ou falhou:', result.error);
       }
     } catch (error) {
       console.error('❌ Erro na autenticação biométrica:', error);
-      Alert.alert('Erro', 'Falha na autenticação biométrica');
+      // Não mostrar alert para erros de biometria em emuladores
+      if (!error.message?.includes('not available') && !error.message?.includes('not enrolled')) {
+        Alert.alert('Erro', 'Falha na autenticação biométrica');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -116,14 +155,15 @@ export default function LoginScreen({ navigation }) {
     }
   };
 
-  const handleManualLogin = () => {
-    navigation.navigate('WebView', { 
+  const handleLogin = () => {
+    // Redirecionar para a página de login onde o usuário fará o login
+    navigation.replace('WebView', { 
       initialUrl: 'https://corpxbank.com.br/login.php',
-      isLoginScreen: true 
+      isLoginScreen: true
     });
   };
 
-  const handleCreateAccount = () => {
+  const handleRegister = () => {
     navigation.navigate('Register');
   };
 
@@ -137,10 +177,10 @@ export default function LoginScreen({ navigation }) {
           resizeMode="contain"
         />
       </View>
-
-      {/* Título */}
-      <Text style={styles.title}>Bem-vindo ao Corpx Bank</Text>
-      <Text style={styles.subtitle}>Escolha como deseja acessar sua conta</Text>
+      <Text style={styles.subtitle}>
+        Sua conta digital completa{"\n"}
+        Simples, segura e sem complicações
+      </Text>
 
       {/* Botões */}
       <View style={styles.buttonsContainer}>
@@ -162,33 +202,33 @@ export default function LoginScreen({ navigation }) {
           </TouchableOpacity>
         )}
 
-        {/* Botão Login Manual */}
+        {/* Botão Entrar */}
         <TouchableOpacity
           style={[styles.button, styles.loginButton]}
-          onPress={handleManualLogin}
+          onPress={handleLogin}
           disabled={isLoading}
         >
-          <Text style={styles.buttonText}>Entrar na minha conta</Text>
+          <Text style={styles.buttonText}>Entrar</Text>
         </TouchableOpacity>
 
-        {/* Botão Criar Conta */}
-        <TouchableOpacity
-          style={[styles.button, styles.registerButton]}
-          onPress={handleCreateAccount}
-          disabled={isLoading}
-        >
-          <Text style={[styles.buttonText, styles.registerButtonText]}>Criar conta</Text>
-        </TouchableOpacity>
+        {/* Botão Criar Conta - só aparece se nunca fez login */}
+        {!hasLoggedInBefore && (
+          <TouchableOpacity
+            style={[styles.button, styles.registerButton]}
+            onPress={handleRegister}
+            disabled={isLoading}
+          >
+            <Text style={[styles.buttonText, styles.registerButtonText]}>Criar conta</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
-      {/* Informações de teste */}
-      {__DEV__ && (
-        <View style={styles.debugInfo}>
-          <Text style={styles.debugText}>🧪 Dados de teste:</Text>
-          <Text style={styles.debugText}>Login: valeria123</Text>
-          <Text style={styles.debugText}>Senha: Valeria123</Text>
-        </View>
-      )}
+      {/* Informações adicionais */}
+      <View style={styles.infoContainer}>
+        <Text style={styles.infoText}>✓ Conta digital gratuita</Text>
+        <Text style={styles.infoText}>✓ Cartão sem anuidade</Text>
+        <Text style={styles.infoText}>✓ Transferências ilimitadas</Text>
+      </View>
     </View>
   );
 }
@@ -196,84 +236,106 @@ export default function LoginScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0E0E0E',
+    backgroundColor: '#0A0A0A',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
   },
   logoContainer: {
     marginBottom: 40,
     alignItems: 'center',
+    shadowColor: '#2E7D32',
+    shadowOffset: {
+      width: 0,
+      height: 8,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
   },
   logoImage: {
-    width: 150,
-    height: 150,
-  },
-  title: {
-    color: '#FFFFFF',
-    fontSize: 24,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 10,
+    width: 180,
+    height: 180,
   },
   subtitle: {
-    color: '#CCCCCC',
-    fontSize: 16,
+    color: '#E0E0E0',
+    fontSize: 18,
     textAlign: 'center',
-    marginBottom: 40,
+    marginBottom: 60,
+    lineHeight: 26,
+    fontWeight: '400',
+    letterSpacing: 0.5,
   },
   buttonsContainer: {
     width: '100%',
-    maxWidth: 300,
+    maxWidth: 320,
+    marginBottom: 50,
   },
   button: {
-    backgroundColor: '#1A1A1A',
-    paddingVertical: 15,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    marginBottom: 15,
+    paddingVertical: 20,
+    paddingHorizontal: 24,
+    borderRadius: 16,
+    marginBottom: 16,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#333333',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
   },
   biometricButton: {
     backgroundColor: '#2E7D32',
     borderColor: '#4CAF50',
     flexDirection: 'row',
     justifyContent: 'center',
+    shadowColor: '#4CAF50',
   },
   loginButton: {
-    backgroundColor: '#1976D2',
-    borderColor: '#2196F3',
+    backgroundColor: '#2E7D32',
+    borderColor: '#4CAF50',
+    shadowColor: '#2E7D32',
   },
   registerButton: {
-    backgroundColor: 'transparent',
-    borderColor: '#666666',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    shadowColor: '#FFFFFF',
+    shadowOpacity: 0.1,
   },
   buttonText: {
     color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
   registerButtonText: {
-    color: '#CCCCCC',
+    color: '#E0E0E0',
+    fontWeight: '600',
   },
   biometricIcon: {
-    fontSize: 20,
-    marginRight: 10,
+    fontSize: 22,
+    marginRight: 12,
   },
-  debugInfo: {
-    position: 'absolute',
-    bottom: 50,
-    backgroundColor: '#1A1A1A',
-    padding: 10,
-    borderRadius: 5,
+  infoContainer: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    paddingVertical: 20,
+    paddingHorizontal: 24,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#333333',
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    width: '100%',
+    maxWidth: 320,
   },
-  debugText: {
-    color: '#CCCCCC',
-    fontSize: 12,
+  infoText: {
+    color: '#B0B0B0',
+    fontSize: 15,
+    marginBottom: 8,
     textAlign: 'center',
+    fontWeight: '500',
+    letterSpacing: 0.3,
   },
 });
