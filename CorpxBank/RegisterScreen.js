@@ -33,7 +33,7 @@ export default function RegisterScreen({ navigation }) {
         style={styles.topBackButton}
         onPress={handleBackToSplash}
       >
-        <Text style={styles.topBackButtonText}>← Voltar</Text>
+        <Text style={styles.topBackButtonText}>← Voltar ao Login</Text>
       </TouchableOpacity>
       {/* Logo */}
       <View style={styles.logoContainer}>
@@ -66,7 +66,7 @@ export default function RegisterScreen({ navigation }) {
           style={[styles.button, styles.backButton]}
           onPress={handleBackToLogin}
         >
-          <Text style={[styles.buttonText, styles.backButtonText]}>Voltar ao login</Text>
+          <Text style={[styles.buttonText, styles.backButtonText]}>← Voltar ao Login</Text>
         </TouchableOpacity>
       </View>
 
@@ -148,12 +148,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#2E7D32',
     borderColor: '#4CAF50',
     shadowColor: '#2E7D32',
+    shadowOpacity: 0.3,
   },
   backButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.3)',
     shadowColor: '#FFFFFF',
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.15,
   },
   buttonText: {
     color: '#FFFFFF',
@@ -201,14 +202,18 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 50,
     left: 20,
-    padding: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
     zIndex: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 12,
+    backgroundColor: 'rgba(46, 125, 50, 0.9)',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(76, 175, 80, 0.5)',
   },
   topBackButtonText: {
-    color: '#E0E0E0',
-    fontSize: 16,
-    fontWeight: '600',
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
 });

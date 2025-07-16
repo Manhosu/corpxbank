@@ -1,3 +1,4 @@
+
 {
   "expo": {
     "name": "Corpx Bank",
@@ -6,7 +7,6 @@
     "orientation": "portrait",
     "icon": "./logo.png",
     "userInterfaceStyle": "dark",
-    "newArchEnabled": true,
     "splash": {
       "image": "./logo.png",
       "resizeMode": "contain",
@@ -53,9 +53,8 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "e75888c9-d552-4b53-b925-707e41a517fc"
+        "projectId": "78d34717-4e2c-4a5a-a032-436e366317da"
       }
-    },
-    "owner": "dudulindo"
+    }
   }
 }

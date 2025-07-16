@@ -300,10 +300,10 @@ const styles = StyleSheet.create({
     shadowColor: '#2E7D32',
   },
   registerButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-    shadowColor: '#FFFFFF',
-    shadowOpacity: 0.1,
+    backgroundColor: '#1B5E20',
+    borderColor: '#4CAF50',
+    shadowColor: '#4CAF50',
+    shadowOpacity: 0.3,
   },
   buttonText: {
     color: '#FFFFFF',
@@ -312,8 +312,8 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   registerButtonText: {
-    color: '#E0E0E0',
-    fontWeight: '600',
+    color: '#FFFFFF',
+    fontWeight: '700',
   },
   biometricIcon: {
     fontSize: 22,

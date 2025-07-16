@@ -9,12 +9,14 @@ import {
   TouchableOpacity,
   StatusBar,
   Platform,
+  Image,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import * as LocalAuthentication from 'expo-local-authentication';
 import * as SecureStore from 'expo-secure-store';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
+import * as MediaLibrary from 'expo-media-library';
 import Constants from 'expo-constants';
 
 const SESSION_KEY = 'corpxbank_session';
@@ -172,16 +174,31 @@ export default function CorpxWebViewScreen({ navigation, route }) {
 
   const handleFileDownload = async (url, filename) => {
     try {
-      // Verificar se está rodando no Expo Go
-      if (Constants.appOwnership === 'expo') {
+      console.log('📥 Iniciando download:', filename);
+      
+      // Verificar se é Expo Go
+      const isExpoGo = __DEV__ && !Constants.isDevice;
+      
+      if (isExpoGo || Constants.appOwnership === 'expo') {
         Alert.alert(
-          'Funcionalidade Limitada',
-          'Downloads não estão disponíveis no Expo Go. Use um build standalone para esta funcionalidade.'
+          'Download não disponível', 
+          'Downloads não funcionam no Expo Go. Use a versão standalone do app.',
+          [{ text: 'OK' }]
         );
         return;
       }
-
-      console.log('📥 Iniciando download:', filename);
+      
+      // Para versão standalone
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      
+      if (status !== 'granted') {
+        Alert.alert(
+          'Permissão necessária',
+          'É necessário permitir acesso aos arquivos para fazer download.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
       
       const downloadResult = await FileSystem.downloadAsync(
         url,
@@ -189,18 +206,25 @@ export default function CorpxWebViewScreen({ navigation, route }) {
       );
       
       if (downloadResult.status === 200) {
-        // Compartilhar arquivo
-        if (await Sharing.isAvailableAsync()) {
-          await Sharing.shareAsync(downloadResult.uri);
-        } else {
-          Alert.alert('Sucesso', `Arquivo salvo: ${filename}`);
-        }
+        // Salvar na galeria/downloads
+        const asset = await MediaLibrary.createAssetAsync(downloadResult.uri);
+        await MediaLibrary.createAlbumAsync('CorpxBank', asset, false);
+        
+        Alert.alert(
+          'Download concluído',
+          `Arquivo ${filename} salvo com sucesso!`,
+          [{ text: 'OK' }]
+        );
       } else {
-        Alert.alert('Erro', 'Falha no download do arquivo');
+        throw new Error('Falha no download');
       }
     } catch (error) {
       console.error('❌ Erro no download:', error);
-      Alert.alert('Erro', 'Não foi possível baixar o arquivo');
+      Alert.alert(
+        'Erro no download',
+        'Não foi possível baixar o arquivo. Tente novamente.',
+        [{ text: 'OK' }]
+      );
     }
   };
 
@@ -243,23 +267,86 @@ export default function CorpxWebViewScreen({ navigation, route }) {
         });
       });
       
-        // Interceptar downloads
-        const links = document.querySelectorAll('a[href*=".pdf"], a[href*=".csv"], a[href*="download"]');
-        links.forEach(link => {
-          link.addEventListener('click', function(e) {
-            try {
-              e.preventDefault();
-              if (window.ReactNativeWebView) {
-                window.ReactNativeWebView.postMessage(JSON.stringify({
-                  type: 'DOWNLOAD_FILE',
-                  url: this.href,
-                  filename: this.download || 'arquivo.pdf'
-                }));
-              }
-            } catch (error) {
-              console.error('Erro ao interceptar download:', error);
-            }
+        // Interceptar downloads - versão melhorada
+        function setupDownloadInterceptors() {
+          // Interceptar links de download existentes
+          const downloadSelectors = [
+            'a[href*=".pdf"]',
+            'a[href*=".csv"]', 
+            'a[href*="download"]',
+            'a[download]',
+            'button[onclick*="download"]',
+            'button[onclick*="export"]',
+            '[data-action="download"]',
+            '[data-action="export"]'
+          ];
+          
+          downloadSelectors.forEach(selector => {
+            const elements = document.querySelectorAll(selector);
+            elements.forEach(element => {
+              element.addEventListener('click', function(e) {
+                try {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  
+                  let url = this.href || this.getAttribute('data-url');
+                  let filename = this.getAttribute('download') || 
+                               this.getAttribute('data-filename') || 
+                               this.textContent.trim() || 
+                               'arquivo';
+                  
+                  // Se não tem URL direta, tentar executar onclick primeiro
+                  if (!url && this.onclick) {
+                    // Executar a função original e aguardar
+                    setTimeout(() => {
+                      // Procurar por novos links de download que podem ter aparecido
+                      const newLinks = document.querySelectorAll('a[href*="blob:"], a[href*="data:"]');
+                      if (newLinks.length > 0) {
+                        const lastLink = newLinks[newLinks.length - 1];
+                        url = lastLink.href;
+                        filename = lastLink.download || filename;
+                      }
+                      
+                      if (url && window.ReactNativeWebView) {
+                        window.ReactNativeWebView.postMessage(JSON.stringify({
+                          type: 'DOWNLOAD_FILE',
+                          url: url,
+                          filename: filename
+                        }));
+                      }
+                    }, 500);
+                    
+                    // Executar função original
+                    this.onclick.call(this, e);
+                    return;
+                  }
+                  
+                  if (url && window.ReactNativeWebView) {
+                    window.ReactNativeWebView.postMessage(JSON.stringify({
+                      type: 'DOWNLOAD_FILE',
+                      url: url,
+                      filename: filename
+                    }));
+                  }
+                } catch (error) {
+                  console.error('Erro ao interceptar download:', error);
+                }
+              });
+            });
           });
+        }
+        
+        // Configurar interceptadores iniciais
+        setupDownloadInterceptors();
+        
+        // Reconfigurar quando novos elementos forem adicionados
+        const downloadObserver = new MutationObserver(() => {
+          setupDownloadInterceptors();
+        });
+        
+        downloadObserver.observe(document.body, {
+          childList: true,
+          subtree: true
         });
         
         // Interceptar logout
@@ -319,13 +406,30 @@ export default function CorpxWebViewScreen({ navigation, route }) {
   `;
 
   const renderLoading = () => (
-    <View style={styles.loadingContainer}>
-      <ActivityIndicator size="large" color="#FFFFFF" />
-      <Text style={styles.loadingText}>
-        {isLoginScreen ? 'Carregando login...' :
-         isSignupScreen ? 'Carregando cadastro...' :
-         'Carregando Corpx Bank...'}
-      </Text>
+    <View style={styles.fullScreenLoadingContainer}>
+      {/* Botão Logout na tela de loading */}
+       <TouchableOpacity
+         style={styles.loadingLogoutButton}
+         onPress={handleBackToSplash}
+       >
+         <Text style={styles.logoutIcon}>✕</Text>
+       </TouchableOpacity>
+      
+      <View style={styles.loadingContent}>
+        <View style={styles.logoContainer}>
+          <Image 
+            source={require('../logo.png')} 
+            style={styles.logoImage}
+            resizeMode="contain"
+          />
+        </View>
+        <ActivityIndicator size="large" color="#2E7D32" style={styles.loadingIndicator} />
+        <Text style={styles.loadingText}>
+          {isLoginScreen ? 'Carregando login...' :
+           isSignupScreen ? 'Carregando cadastro...' :
+           'Carregando Corpx Bank...'}
+        </Text>
+      </View>
     </View>
   );
 
@@ -364,13 +468,15 @@ export default function CorpxWebViewScreen({ navigation, route }) {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0E0E0E" />
       
-      {/* Botão Voltar */}
-      <TouchableOpacity
-        style={styles.backButton}
-        onPress={handleBackToSplash}
-      >
-        <Text style={styles.backButtonText}>← Voltar</Text>
-      </TouchableOpacity>
+      {/* Botão Logout - só aparece quando não está carregando */}
+       {!isLoading && (
+         <TouchableOpacity
+           style={styles.logoutButton}
+           onPress={handleBackToSplash}
+         >
+           <Text style={styles.logoutIcon}>✕</Text>
+         </TouchableOpacity>
+       )}
       
       <WebView
         ref={webViewRef}
@@ -455,11 +561,50 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  fullScreenLoadingContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#0E0E0E',
+    zIndex: 999,
+  },
+  loadingContent: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingLogoutButton: {
+     position: 'absolute',
+     top: 50,
+     right: 20,
+     backgroundColor: 'rgba(220, 53, 69, 0.9)',
+     width: 40,
+     height: 40,
+     borderRadius: 20,
+     justifyContent: 'center',
+     alignItems: 'center',
+     zIndex: 1001,
+     borderWidth: 1,
+     borderColor: 'rgba(255, 255, 255, 0.3)',
+   },
   loadingText: {
     color: '#FFFFFF',
     fontSize: 16,
     marginTop: 20,
     textAlign: 'center',
+  },
+  logoContainer: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  logoImage: {
+    width: 120,
+    height: 60,
+  },
+  loadingIndicator: {
+    marginBottom: 10,
   },
   promptOverlay: {
     position: 'absolute',
@@ -524,19 +669,23 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
-  backButton: {
+  logoutButton: {
     position: 'absolute',
     top: 50,
-    left: 20,
-    backgroundColor: 'rgba(46, 125, 50, 0.9)',
-    paddingHorizontal: 15,
-    paddingVertical: 8,
+    right: 20,
+    backgroundColor: 'rgba(220, 53, 69, 0.9)',
+    width: 40,
+    height: 40,
     borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
     zIndex: 1000,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
   },
-  backButtonText: {
+  logoutIcon: {
     color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 18,
+    fontWeight: 'bold',
   },
 });
