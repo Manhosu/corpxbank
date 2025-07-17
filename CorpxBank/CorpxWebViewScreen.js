@@ -10,6 +10,7 @@ import {
   StatusBar,
   Platform,
   Image,
+  SafeAreaView,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import * as LocalAuthentication from 'expo-local-authentication';
@@ -134,9 +135,11 @@ export default function CorpxWebViewScreen({ navigation, route }) {
   const handleMessage = (event) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
+      console.log('📨 Mensagem WebView recebida:', data);
       
       switch (data.type) {
         case 'LOGIN_CREDENTIALS':
+          console.log('🔐 Credenciais de login capturadas');
           setLoginCredentials({
             login: data.login,
             password: data.password
@@ -147,11 +150,28 @@ export default function CorpxWebViewScreen({ navigation, route }) {
           }, 1000);
           break;
           
+        case 'DOWNLOAD_BUTTON_CLICKED':
+          console.log('🎯 Botão de download clicado:', {
+            buttonText: data.buttonText,
+            timestamp: data.timestamp
+          });
+          Alert.alert(
+            'Download Detectado',
+            `Botão "${data.buttonText}" foi clicado. Aguardando arquivo...`,
+            [{ text: 'OK' }]
+          );
+          break;
+          
         case 'DOWNLOAD_FILE':
+          console.log('📥 Solicitação de download recebida:', {
+            url: data.url,
+            filename: data.filename
+          });
           handleFileDownload(data.url, data.filename);
           break;
           
         case 'LOGIN_SUCCESS':
+          console.log('✅ Login bem-sucedido detectado');
           // Login bem-sucedido detectado
           if (loginCredentials) {
             setTimeout(() => {
@@ -161,11 +181,40 @@ export default function CorpxWebViewScreen({ navigation, route }) {
           break;
           
         case 'LOGOUT':
+          console.log('🔓 Logout solicitado');
           handleLogout();
           break;
           
+        case 'TEST_RESULTS':
+          console.log('🧪 Resultados do teste automático:', data);
+          
+          let detailsText = `Página: ${data.currentUrl}\n`;
+          detailsText += `Elementos encontrados: ${data.totalElements}\n\n`;
+          
+          if (data.foundElements && data.foundElements.length > 0) {
+            detailsText += 'Elementos detectados:\n';
+            data.foundElements.slice(0, 5).forEach((el, index) => {
+              detailsText += `${index + 1}. ${el.tagName}: "${el.text}"\n`;
+            });
+            if (data.foundElements.length > 5) {
+              detailsText += `... e mais ${data.foundElements.length - 5} elementos\n`;
+            }
+          } else {
+            detailsText += 'Nenhum elemento de exportação encontrado.\n';
+          }
+          
+          Alert.alert(
+            'Teste de Exportação',
+            detailsText,
+            [
+              { text: 'Console', onPress: () => console.log('📊 Elementos completos:', data.foundElements) },
+              { text: 'OK' }
+            ]
+          );
+          break;
+          
         default:
-          console.log('📨 Mensagem recebida:', data);
+          console.log('📨 Mensagem recebida (tipo desconhecido):', data);
       }
     } catch (error) {
       console.log('📨 Mensagem não-JSON recebida:', event.nativeEvent.data);
@@ -174,24 +223,20 @@ export default function CorpxWebViewScreen({ navigation, route }) {
 
   const handleFileDownload = async (url, filename) => {
     try {
-      console.log('📥 Iniciando download:', filename);
+      console.log('📥 Iniciando download:', filename, 'URL:', url);
+      console.log('🔧 Constants.appOwnership:', Constants.appOwnership);
+      console.log('🔧 __DEV__:', __DEV__);
+      console.log('🔧 Constants.isDevice:', Constants.isDevice);
       
-      // Verificar se é Expo Go
-      const isExpoGo = __DEV__ && !Constants.isDevice;
+      console.log('✅ Prosseguindo com download - verificação Expo Go removida');
       
-      if (isExpoGo || Constants.appOwnership === 'expo') {
-        Alert.alert(
-          'Download não disponível', 
-          'Downloads não funcionam no Expo Go. Use a versão standalone do app.',
-          [{ text: 'OK' }]
-        );
-        return;
-      }
-      
-      // Para versão standalone
+      // Para versão standalone - solicitar permissões
+      console.log('🔐 Solicitando permissões do MediaLibrary...');
       const { status } = await MediaLibrary.requestPermissionsAsync();
+      console.log('🔐 Status da permissão:', status);
       
       if (status !== 'granted') {
+        console.log('❌ Permissão negada pelo usuário');
         Alert.alert(
           'Permissão necessária',
           'É necessário permitir acesso aos arquivos para fazer download.',
@@ -200,29 +245,77 @@ export default function CorpxWebViewScreen({ navigation, route }) {
         return;
       }
       
-      const downloadResult = await FileSystem.downloadAsync(
-        url,
-        FileSystem.documentDirectory + filename
-      );
+      console.log('✅ Permissões concedidas - iniciando download');
+      
+      // Limpar filename de caracteres inválidos
+      const cleanFilename = filename.replace(/[^a-zA-Z0-9.-]/g, '_');
+      const downloadPath = FileSystem.documentDirectory + cleanFilename;
+      
+      console.log('📂 Caminho de download:', downloadPath);
+      
+      let downloadResult;
+      
+      // Tratamento especial para URLs blob e data
+      if (url.startsWith('blob:') || url.startsWith('data:')) {
+        console.log('🔗 URL especial detectada (blob/data), tratamento customizado');
+        
+        try {
+          // Para data URIs, extrair dados base64
+          if (url.startsWith('data:')) {
+            console.log('📄 Processando data URI');
+            const base64Data = url.split(',')[1];
+            await FileSystem.writeAsStringAsync(downloadPath, base64Data, {
+              encoding: FileSystem.EncodingType.Base64,
+            });
+            downloadResult = { status: 200, uri: downloadPath };
+          } else {
+            // Para blob URLs, tentar download direto
+            console.log('🔗 Tentando download de blob URL');
+            downloadResult = await FileSystem.downloadAsync(url, downloadPath);
+          }
+        } catch (blobError) {
+          console.log('⚠️ Falha no tratamento de URL especial:', blobError.message);
+          // Fallback para download normal
+          downloadResult = await FileSystem.downloadAsync(url, downloadPath);
+        }
+      } else {
+        // Download normal para URLs HTTP/HTTPS
+        console.log('🌐 Download normal de URL HTTP/HTTPS');
+        downloadResult = await FileSystem.downloadAsync(url, downloadPath);
+      }
+      
+      console.log('📊 Resultado do download:', downloadResult);
       
       if (downloadResult.status === 200) {
+        console.log('✅ Download concluído - salvando na galeria');
+        
         // Salvar na galeria/downloads
         const asset = await MediaLibrary.createAssetAsync(downloadResult.uri);
+        console.log('📱 Asset criado:', asset.id);
+        
         await MediaLibrary.createAlbumAsync('CorpxBank', asset, false);
+        console.log('📁 Álbum CorpxBank criado/atualizado');
         
         Alert.alert(
           'Download concluído',
-          `Arquivo ${filename} salvo com sucesso!`,
+          `Arquivo ${cleanFilename} salvo com sucesso na galeria!`,
           [{ text: 'OK' }]
         );
       } else {
-        throw new Error('Falha no download');
+        console.log('❌ Status de download inválido:', downloadResult.status);
+        throw new Error(`Falha no download - Status: ${downloadResult.status}`);
       }
     } catch (error) {
-      console.error('❌ Erro no download:', error);
+      console.error('❌ Erro detalhado no download:', {
+        message: error.message,
+        stack: error.stack,
+        url: url,
+        filename: filename
+      });
+      
       Alert.alert(
         'Erro no download',
-        'Não foi possível baixar o arquivo. Tente novamente.',
+        `Não foi possível baixar o arquivo: ${error.message}`,
         [{ text: 'OK' }]
       );
     }
@@ -231,12 +324,8 @@ export default function CorpxWebViewScreen({ navigation, route }) {
   const injectedJavaScript = `
     (function() {
       try {
-        // Verificar se ReactNativeWebView está disponível
-        if (!window.ReactNativeWebView) {
-          console.log('ReactNativeWebView não disponível');
-          return true;
-        }
-
+        console.log('🚀 CorpxBank WebView Script iniciado');
+        
         // Interceptar submissão de formulários de login
         const forms = document.querySelectorAll('form');
         forms.forEach(form => {
@@ -251,102 +340,11 @@ export default function CorpxWebViewScreen({ navigation, route }) {
                   login: loginField.value,
                   password: passwordField.value
                 }));
-                
-                // Detectar redirecionamento após login (indicativo de sucesso)
-                setTimeout(() => {
-                  if (window.location.href !== window.location.href) {
-                    window.ReactNativeWebView.postMessage(JSON.stringify({
-                      type: 'LOGIN_SUCCESS'
-                    }));
-                  }
-                }, 2000);
               }
             } catch (error) {
               console.error('Erro ao interceptar formulário:', error);
             }
-        });
-      });
-      
-        // Interceptar downloads - versão melhorada
-        function setupDownloadInterceptors() {
-          // Interceptar links de download existentes
-          const downloadSelectors = [
-            'a[href*=".pdf"]',
-            'a[href*=".csv"]', 
-            'a[href*="download"]',
-            'a[download]',
-            'button[onclick*="download"]',
-            'button[onclick*="export"]',
-            '[data-action="download"]',
-            '[data-action="export"]'
-          ];
-          
-          downloadSelectors.forEach(selector => {
-            const elements = document.querySelectorAll(selector);
-            elements.forEach(element => {
-              element.addEventListener('click', function(e) {
-                try {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  
-                  let url = this.href || this.getAttribute('data-url');
-                  let filename = this.getAttribute('download') || 
-                               this.getAttribute('data-filename') || 
-                               this.textContent.trim() || 
-                               'arquivo';
-                  
-                  // Se não tem URL direta, tentar executar onclick primeiro
-                  if (!url && this.onclick) {
-                    // Executar a função original e aguardar
-                    setTimeout(() => {
-                      // Procurar por novos links de download que podem ter aparecido
-                      const newLinks = document.querySelectorAll('a[href*="blob:"], a[href*="data:"]');
-                      if (newLinks.length > 0) {
-                        const lastLink = newLinks[newLinks.length - 1];
-                        url = lastLink.href;
-                        filename = lastLink.download || filename;
-                      }
-                      
-                      if (url && window.ReactNativeWebView) {
-                        window.ReactNativeWebView.postMessage(JSON.stringify({
-                          type: 'DOWNLOAD_FILE',
-                          url: url,
-                          filename: filename
-                        }));
-                      }
-                    }, 500);
-                    
-                    // Executar função original
-                    this.onclick.call(this, e);
-                    return;
-                  }
-                  
-                  if (url && window.ReactNativeWebView) {
-                    window.ReactNativeWebView.postMessage(JSON.stringify({
-                      type: 'DOWNLOAD_FILE',
-                      url: url,
-                      filename: filename
-                    }));
-                  }
-                } catch (error) {
-                  console.error('Erro ao interceptar download:', error);
-                }
-              });
-            });
           });
-        }
-        
-        // Configurar interceptadores iniciais
-        setupDownloadInterceptors();
-        
-        // Reconfigurar quando novos elementos forem adicionados
-        const downloadObserver = new MutationObserver(() => {
-          setupDownloadInterceptors();
-        });
-        
-        downloadObserver.observe(document.body, {
-          childList: true,
-          subtree: true
         });
         
         // Interceptar logout
@@ -367,41 +365,206 @@ export default function CorpxWebViewScreen({ navigation, route }) {
         
         // Detectar mudanças na URL que indicam login bem-sucedido
         let currentUrl = window.location.href;
-        const urlObserver = new MutationObserver(() => {
+        setInterval(() => {
           if (window.location.href !== currentUrl) {
             currentUrl = window.location.href;
-            // Se saiu da página de login, provavelmente foi bem-sucedido
             if (!currentUrl.includes('login.php') && window.ReactNativeWebView) {
               window.ReactNativeWebView.postMessage(JSON.stringify({
                 type: 'LOGIN_SUCCESS'
               }));
             }
           }
-        });
+        }, 1000);
         
-        urlObserver.observe(document.body, {
-          childList: true,
-          subtree: true
-        });
-        
-        // Melhorar UX mobile
-        try {
-          const viewport = document.querySelector('meta[name="viewport"]');
-          if (!viewport && document.head) {
-            const meta = document.createElement('meta');
-            meta.name = 'viewport';
-            meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no';
-            document.head.appendChild(meta);
-          }
-        } catch (error) {
-          console.error('Erro ao configurar viewport:', error);
+        // Interceptação robusta de downloads
+        function setupDownloadInterceptors() {
+          console.log('🔧 Configurando interceptadores de download');
+          
+          // Interceptar cliques em elementos de download
+          document.addEventListener('click', function(e) {
+            const target = e.target;
+            let shouldIntercept = false;
+            let url = '';
+            let filename = 'arquivo';
+            
+            console.log('🖱️ Clique detectado em:', target.tagName, target.textContent || target.value || '', target.className);
+            
+            // Verificar se é um link de download
+            if (target.tagName === 'A') {
+              console.log('🔗 Link detectado:', target.href);
+              if (target.href && (target.href.includes('.pdf') || target.href.includes('.csv') || target.download)) {
+                shouldIntercept = true;
+                url = target.href;
+                filename = target.download || target.textContent.trim() || 'arquivo';
+                console.log('✅ Link de download identificado:', url, filename);
+              }
+            }
+            
+            // Verificar se é um botão com onclick que pode gerar download
+            if (target.tagName === 'BUTTON' || target.tagName === 'INPUT' || target.type === 'submit') {
+              const text = target.textContent || target.value || '';
+              const onclick = target.getAttribute('onclick') || '';
+              const className = target.className || '';
+              
+              console.log('🔘 Botão/Input detectado:', {
+                text: text,
+                onclick: onclick,
+                className: className,
+                type: target.type
+              });
+              
+              if (text.toLowerCase().includes('exportar') || 
+                  text.toLowerCase().includes('download') ||
+                  text.toLowerCase().includes('pdf') ||
+                  text.toLowerCase().includes('csv') ||
+                  text.toLowerCase().includes('gerar') ||
+                  text.toLowerCase().includes('relatório') ||
+                  text.toLowerCase().includes('relatorio') ||
+                  onclick.includes('export') ||
+                  onclick.includes('download') ||
+                  onclick.includes('pdf') ||
+                  onclick.includes('csv') ||
+                  className.includes('export') ||
+                  className.includes('download')) {
+                
+                console.log('🎯 Botão de download detectado:', text);
+                
+                // Enviar mensagem imediatamente para notificar o clique
+                if (window.ReactNativeWebView) {
+                  window.ReactNativeWebView.postMessage(JSON.stringify({
+                    type: 'DOWNLOAD_BUTTON_CLICKED',
+                    buttonText: text,
+                    timestamp: Date.now()
+                  }));
+                }
+                
+                // Monitorar por novos links criados dinamicamente
+                const checkForDownloads = () => {
+                  const newLinks = document.querySelectorAll('a[href*="blob:"], a[href*="data:"], a[download]');
+                  console.log('🔍 Verificando novos links de download:', newLinks.length);
+                  
+                  if (newLinks.length > 0) {
+                    const lastLink = newLinks[newLinks.length - 1];
+                    console.log('📎 Novo link encontrado:', lastLink.href);
+                    
+                    if (window.ReactNativeWebView) {
+                      window.ReactNativeWebView.postMessage(JSON.stringify({
+                        type: 'DOWNLOAD_FILE',
+                        url: lastLink.href,
+                        filename: lastLink.download || text || 'arquivo'
+                      }));
+                    }
+                  }
+                  
+                  // Verificar também por mudanças no window.location
+                  if (window.location.href.includes('download') || window.location.href.includes('export')) {
+                    console.log('🌐 URL de download detectada:', window.location.href);
+                    if (window.ReactNativeWebView) {
+                      window.ReactNativeWebView.postMessage(JSON.stringify({
+                        type: 'DOWNLOAD_FILE',
+                        url: window.location.href,
+                        filename: text || 'arquivo'
+                      }));
+                    }
+                  }
+                };
+                
+                // Verificar múltiplas vezes com intervalos diferentes
+                setTimeout(checkForDownloads, 500);
+                setTimeout(checkForDownloads, 1000);
+                setTimeout(checkForDownloads, 2000);
+                setTimeout(checkForDownloads, 3000);
+                setTimeout(checkForDownloads, 5000);
+              }
+            }
+            
+            if (shouldIntercept && window.ReactNativeWebView) {
+              console.log('📥 Download interceptado:', url, filename);
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'DOWNLOAD_FILE',
+                url: url,
+                filename: filename
+              }));
+            }
+          });
         }
         
-      } catch (globalError) {
-        console.error('Erro global no injectedJavaScript:', globalError);
+        // Configurar interceptadores
+        setupDownloadInterceptors();
+        
+        // Interceptar criação de novos elementos (especialmente links de download)
+        const observer = new MutationObserver((mutations) => {
+          mutations.forEach((mutation) => {
+            if (mutation.type === 'childList') {
+              mutation.addedNodes.forEach((node) => {
+                if (node.nodeType === 1) { // Element node
+                  // Verificar se é um link de download
+                  if (node.tagName === 'A' && (node.href.includes('blob:') || node.href.includes('data:') || node.download)) {
+                    console.log('🆕 Novo link de download criado:', node.href);
+                    if (window.ReactNativeWebView) {
+                      window.ReactNativeWebView.postMessage(JSON.stringify({
+                        type: 'DOWNLOAD_FILE',
+                        url: node.href,
+                        filename: node.download || node.textContent || 'arquivo'
+                      }));
+                    }
+                  }
+                  
+                  // Verificar links dentro do novo elemento
+                  const newLinks = node.querySelectorAll ? node.querySelectorAll('a[href*="blob:"], a[href*="data:"], a[download]') : [];
+                  if (newLinks.length > 0) {
+                    console.log('🔗 Novos links encontrados em elemento adicionado:', newLinks.length);
+                    newLinks.forEach(link => {
+                      console.log('📎 Link encontrado:', link.href);
+                      if (window.ReactNativeWebView) {
+                        window.ReactNativeWebView.postMessage(JSON.stringify({
+                          type: 'DOWNLOAD_FILE',
+                          url: link.href,
+                          filename: link.download || link.textContent || 'arquivo'
+                        }));
+                      }
+                    });
+                  }
+                }
+              });
+            }
+          });
+          
+          // Reconfigurar interceptadores para novos elementos
+          setupDownloadInterceptors();
+        });
+        
+        observer.observe(document.body, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ['href', 'download']
+        });
+        
+        // Interceptar mudanças na URL que podem indicar downloads
+        let lastUrl = window.location.href;
+        setInterval(() => {
+          if (window.location.href !== lastUrl) {
+            console.log('🌐 URL mudou:', window.location.href);
+            if (window.location.href.includes('download') || window.location.href.includes('export') || window.location.href.includes('blob:') || window.location.href.includes('data:')) {
+              console.log('📥 URL de download detectada:', window.location.href);
+              if (window.ReactNativeWebView) {
+                window.ReactNativeWebView.postMessage(JSON.stringify({
+                  type: 'DOWNLOAD_FILE',
+                  url: window.location.href,
+                  filename: 'arquivo_exportado'
+                }));
+              }
+            }
+            lastUrl = window.location.href;
+          }
+        }, 500);
+        
+      } catch (error) {
+        console.error('Erro no script:', error);
       }
       
-      return true; // Necessário para o injectedJavaScript
+      return true;
     })();
   `;
 
@@ -465,8 +628,8 @@ export default function CorpxWebViewScreen({ navigation, route }) {
   };
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#0E0E0E" />
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="#0E0E0E" translucent={false} />
       
       {/* Botão Logout - só aparece quando não está carregando */}
        {!isLoading && (
@@ -543,7 +706,7 @@ export default function CorpxWebViewScreen({ navigation, route }) {
       />
       
       {showBiometricPrompt && renderBiometricPrompt()}
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -551,6 +714,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0E0E0E',
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
   },
   webview: {
     flex: 1,
