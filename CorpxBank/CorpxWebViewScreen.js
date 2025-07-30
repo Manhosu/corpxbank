@@ -11,6 +11,7 @@ import {
   Platform,
   Image,
   SafeAreaView,
+  Linking,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import * as LocalAuthentication from 'expo-local-authentication';
@@ -18,13 +19,18 @@ import * as SecureStore from 'expo-secure-store';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import * as MediaLibrary from 'expo-media-library';
-import Constants from 'expo-constants';
+import * as WebBrowser from 'expo-web-browser';
+import { Constants } from 'expo-constants';
 
 const SESSION_KEY = 'corpxbank_session';
 const LOGIN_STATUS_KEY = 'corpxbank_logged';
 const BIOMETRIC_KEY = 'biometriaAtiva';
+const BIOMETRIC_TIMESTAMP_KEY = 'biometria_timestamp';
 const LOGIN_KEY = 'login';
 const PASSWORD_KEY = 'senha';
+
+// 30 dias em milissegundos
+const BIOMETRIC_EXPIRY_TIME = 30 * 24 * 60 * 60 * 1000;
 
 export default function CorpxWebViewScreen({ navigation, route }) {
   const webViewRef = useRef(null);
@@ -45,7 +51,6 @@ export default function CorpxWebViewScreen({ navigation, route }) {
         webViewRef.current.goBack();
         return true;
       } else {
-        // Se não pode voltar na WebView, volta para a tela de login
         handleLogout();
         return true;
       }
@@ -59,8 +64,9 @@ export default function CorpxWebViewScreen({ navigation, route }) {
     setCurrentUrl(navState.url);
     setCanGoBack(navState.canGoBack);
     
-    // Detectar login bem-sucedido
+    // Detectar login bem-sucedido quando chegar na página inicial
     if (navState.url.includes('inicial.php') && isLoginScreen) {
+      console.log('🎯 Login bem-sucedido detectado - URL:', navState.url);
       handleSuccessfulLogin();
     }
   };
@@ -69,7 +75,6 @@ export default function CorpxWebViewScreen({ navigation, route }) {
     try {
       console.log('✅ Login detectado com sucesso');
       
-      // Salvar sessão
       const sessionData = {
         timestamp: Date.now(),
         url: currentUrl,
@@ -78,7 +83,6 @@ export default function CorpxWebViewScreen({ navigation, route }) {
       await SecureStore.setItemAsync(SESSION_KEY, JSON.stringify(sessionData));
       await SecureStore.setItemAsync(LOGIN_STATUS_KEY, 'true');
       
-      // Verificar se deve mostrar prompt de biometria
       if (loginCredentials && Constants.appOwnership !== 'expo') {
         const biometricSupported = await LocalAuthentication.hasHardwareAsync();
         const enrolled = await LocalAuthentication.isEnrolledAsync();
@@ -96,14 +100,20 @@ export default function CorpxWebViewScreen({ navigation, route }) {
   const handleBiometricPrompt = async (enable) => {
     try {
       if (enable && loginCredentials) {
-        // Salvar credenciais com biometria
-        await SecureStore.setItemAsync(BIOMETRIC_KEY, 'true');
-        await SecureStore.setItemAsync(LOGIN_KEY, loginCredentials.login);
-        await SecureStore.setItemAsync(PASSWORD_KEY, loginCredentials.password);
+        const currentTimestamp = Date.now().toString();
+        
+        await Promise.all([
+          SecureStore.setItemAsync(BIOMETRIC_KEY, 'true'),
+          SecureStore.setItemAsync(BIOMETRIC_TIMESTAMP_KEY, currentTimestamp),
+          SecureStore.setItemAsync(LOGIN_KEY, loginCredentials.login),
+          SecureStore.setItemAsync(PASSWORD_KEY, loginCredentials.password)
+        ]);
+        
+        console.log('🔒 Biometria ativada com timestamp:', currentTimestamp);
         
         Alert.alert(
           'Biometria Ativada',
-          'Agora você pode fazer login usando sua biometria!'
+          'Agora você pode fazer login usando sua biometria por 30 dias!'
         );
       } else {
         await SecureStore.setItemAsync(BIOMETRIC_KEY, 'false');
@@ -118,17 +128,17 @@ export default function CorpxWebViewScreen({ navigation, route }) {
 
   const handleLogout = async () => {
     try {
-      // Limpar sessão
+      // Apenas limpar sessão atual, manter dados biométricos
       await Promise.all([
         SecureStore.deleteItemAsync(SESSION_KEY),
         SecureStore.deleteItemAsync(LOGIN_STATUS_KEY)
       ]);
       
-      console.log('🔓 Logout realizado');
-      navigation.replace('Login');
+      console.log('🔓 Logout realizado - dados biométricos mantidos');
+      navigation.replace('Splash');
     } catch (error) {
       console.error('❌ Erro no logout:', error);
-      navigation.replace('Login');
+      navigation.replace('Splash');
     }
   };
 
@@ -138,574 +148,302 @@ export default function CorpxWebViewScreen({ navigation, route }) {
       console.log('📨 Mensagem WebView recebida:', data);
       
       switch (data.type) {
-        case 'LOGIN_CREDENTIALS':
-          console.log('🔐 Credenciais de login capturadas');
-          setLoginCredentials({
-            login: data.login,
-            password: data.password
-          });
-          // Mostrar prompt de biometria após capturar credenciais
-          setTimeout(() => {
-            setShowBiometricPrompt(true);
-          }, 1000);
-          break;
-          
-        case 'DOWNLOAD_BUTTON_CLICKED':
-          console.log('🎯 Botão de download clicado:', {
-            buttonText: data.buttonText,
-            timestamp: data.timestamp
-          });
-          Alert.alert(
-            'Download Detectado',
-            `Botão "${data.buttonText}" foi clicado. Aguardando arquivo...`,
-            [{ text: 'OK' }]
-          );
-          break;
-          
-        case 'DOWNLOAD_FILE':
-          console.log('📥 Solicitação de download recebida:', {
-            url: data.url,
-            filename: data.filename
-          });
-          handleFileDownload(data.url, data.filename);
-          break;
-          
         case 'LOGIN_SUCCESS':
-          console.log('✅ Login bem-sucedido detectado');
-          // Login bem-sucedido detectado
-          if (loginCredentials) {
-            setTimeout(() => {
-              setShowBiometricPrompt(true);
-            }, 1000);
+          if (data.credentials) {
+            setLoginCredentials(data.credentials);
+          }
+          handleSuccessfulLogin();
+          break;
+          
+        case 'LOGIN_ATTEMPT':
+          if (data.credentials && isLoginScreen) {
+            setLoginCredentials(data.credentials);
+            console.log('🔐 Credenciais de login capturadas');
           }
           break;
           
         case 'LOGOUT':
-          console.log('🔓 Logout solicitado');
           handleLogout();
           break;
           
-        case 'TEST_RESULTS':
-          console.log('🧪 Resultados do teste automático:', data);
-          
-          let detailsText = `Página: ${data.currentUrl}\n`;
-          detailsText += `Elementos encontrados: ${data.totalElements}\n\n`;
-          
-          if (data.foundElements && data.foundElements.length > 0) {
-            detailsText += 'Elementos detectados:\n';
-            data.foundElements.slice(0, 5).forEach((el, index) => {
-              detailsText += `${index + 1}. ${el.tagName}: "${el.text}"\n`;
-            });
-            if (data.foundElements.length > 5) {
-              detailsText += `... e mais ${data.foundElements.length - 5} elementos\n`;
-            }
-          } else {
-            detailsText += 'Nenhum elemento de exportação encontrado.\n';
-          }
-          
-          Alert.alert(
-            'Teste de Exportação',
-            detailsText,
-            [
-              { text: 'Console', onPress: () => console.log('📊 Elementos completos:', data.foundElements) },
-              { text: 'OK' }
-            ]
-          );
-          break;
-          
         default:
-          console.log('📨 Mensagem recebida (tipo desconhecido):', data);
+          console.log('📨 Mensagem não reconhecida:', data.type);
+          break;
       }
     } catch (error) {
       console.log('📨 Mensagem não-JSON recebida:', event.nativeEvent.data);
     }
   };
 
-  const handleFileDownload = async (url, filename) => {
-    try {
-      console.log('📥 Iniciando download:', filename, 'URL:', url);
-      console.log('🔧 Constants.appOwnership:', Constants.appOwnership);
-      console.log('🔧 __DEV__:', __DEV__);
-      console.log('🔧 Constants.isDevice:', Constants.isDevice);
-      
-      console.log('✅ Prosseguindo com download - verificação Expo Go removida');
-      
-      // Para versão standalone - solicitar permissões
-      console.log('🔐 Solicitando permissões do MediaLibrary...');
-      const { status } = await MediaLibrary.requestPermissionsAsync();
-      console.log('🔐 Status da permissão:', status);
-      
-      if (status !== 'granted') {
-        console.log('❌ Permissão negada pelo usuário');
-        Alert.alert(
-          'Permissão necessária',
-          'É necessário permitir acesso aos arquivos para fazer download.',
-          [{ text: 'OK' }]
-        );
-        return;
-      }
-      
-      console.log('✅ Permissões concedidas - iniciando download');
-      
-      // Limpar filename de caracteres inválidos
-      const cleanFilename = filename.replace(/[^a-zA-Z0-9.-]/g, '_');
-      const downloadPath = FileSystem.documentDirectory + cleanFilename;
-      
-      console.log('📂 Caminho de download:', downloadPath);
-      
-      let downloadResult;
-      
-      // Tratamento especial para URLs blob e data
-      if (url.startsWith('blob:') || url.startsWith('data:')) {
-        console.log('🔗 URL especial detectada (blob/data), tratamento customizado');
-        
-        try {
-          // Para data URIs, extrair dados base64
-          if (url.startsWith('data:')) {
-            console.log('📄 Processando data URI');
-            const base64Data = url.split(',')[1];
-            await FileSystem.writeAsStringAsync(downloadPath, base64Data, {
-              encoding: FileSystem.EncodingType.Base64,
-            });
-            downloadResult = { status: 200, uri: downloadPath };
-          } else {
-            // Para blob URLs, tentar download direto
-            console.log('🔗 Tentando download de blob URL');
-            downloadResult = await FileSystem.downloadAsync(url, downloadPath);
+  const handleError = (syntheticEvent) => {
+    const { nativeEvent } = syntheticEvent;
+    console.error('❌ Erro na WebView:', nativeEvent);
+    
+    Alert.alert(
+      'Erro de Conexão',
+      'Não foi possível carregar a página. Verifique sua conexão com a internet.',
+      [
+        {
+          text: 'Tentar Novamente',
+          onPress: () => {
+            if (webViewRef.current) {
+              webViewRef.current.reload();
+            }
           }
-        } catch (blobError) {
-          console.log('⚠️ Falha no tratamento de URL especial:', blobError.message);
-          // Fallback para download normal
-          downloadResult = await FileSystem.downloadAsync(url, downloadPath);
+        },
+        {
+          text: 'Voltar',
+          onPress: () => navigation.goBack()
         }
-      } else {
-        // Download normal para URLs HTTP/HTTPS
-        console.log('🌐 Download normal de URL HTTP/HTTPS');
-        downloadResult = await FileSystem.downloadAsync(url, downloadPath);
-      }
-      
-      console.log('📊 Resultado do download:', downloadResult);
-      
-      if (downloadResult.status === 200) {
-        console.log('✅ Download concluído - salvando na galeria');
-        
-        // Salvar na galeria/downloads
-        const asset = await MediaLibrary.createAssetAsync(downloadResult.uri);
-        console.log('📱 Asset criado:', asset.id);
-        
-        await MediaLibrary.createAlbumAsync('CorpxBank', asset, false);
-        console.log('📁 Álbum CorpxBank criado/atualizado');
-        
-        Alert.alert(
-          'Download concluído',
-          `Arquivo ${cleanFilename} salvo com sucesso na galeria!`,
-          [{ text: 'OK' }]
-        );
-      } else {
-        console.log('❌ Status de download inválido:', downloadResult.status);
-        throw new Error(`Falha no download - Status: ${downloadResult.status}`);
-      }
-    } catch (error) {
-      console.error('❌ Erro detalhado no download:', {
-        message: error.message,
-        stack: error.stack,
-        url: url,
-        filename: filename
-      });
-      
-      Alert.alert(
-        'Erro no download',
-        `Não foi possível baixar o arquivo: ${error.message}`,
-        [{ text: 'OK' }]
-      );
+      ]
+    );
+  };
+
+  const handleRenderProcessGone = () => {
+    console.log('⚠️ Processo da WebView encerrado, recarregando...');
+    if (webViewRef.current) {
+      webViewRef.current.reload();
     }
   };
 
-  const injectedJavaScript = `
-    (function() {
+  const onShouldStartLoadWithRequest = (request) => {
+    const { url } = request;
+    
+    if (url.startsWith('mailto:') || 
+        url.startsWith('tel:') || 
+        url.startsWith('sms:') ||
+        url.startsWith('whatsapp:')) {
+      return false;
+    }
+    
+    // Detectar links de download de PDF e CSV
+    if (url.includes('.pdf') || url.includes('.csv') || 
+        url.includes('download') || url.includes('export')) {
+      handleFileDownload(url);
+      return false;
+    }
+    
+    return true;
+  };
+
+  const handleFileDownload = async (downloadUrl) => {
+    try {
+      console.log('📥 Tentando download:', downloadUrl);
+      
+      // Primeiro, tentar abrir com Linking (funciona bem para PDFs)
+      const supported = await Linking.canOpenURL(downloadUrl);
+      if (supported) {
+        await Linking.openURL(downloadUrl);
+        return;
+      }
+      
+      // Fallback: usar expo-web-browser para abrir em navegador
+      await WebBrowser.openBrowserAsync(downloadUrl, {
+        presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
+        showTitle: true,
+        enableBarCollapsing: true,
+      });
+      
+    } catch (error) {
+      console.error('❌ Erro no download:', error);
+      
+      // Último fallback: tentar download manual
       try {
-        console.log('🚀 CorpxBank WebView Script iniciado');
+        await downloadFileManually(downloadUrl);
+      } catch (downloadError) {
+        console.error('❌ Erro no download manual:', downloadError);
+        Alert.alert(
+          'Erro no Download',
+          'Não foi possível baixar o arquivo. Tente novamente ou entre em contato com o suporte.',
+          [{ text: 'OK' }]
+        );
+      }
+    }
+  };
+
+  const downloadFileManually = async (url) => {
+    try {
+      // Determinar nome e extensão do arquivo
+      const fileName = url.split('/').pop() || 'arquivo';
+      const fileExtension = fileName.includes('.') ? '' : '.pdf';
+      const finalFileName = fileName + fileExtension;
+      
+      // Fazer download usando expo-file-system
+      const downloadResult = await FileSystem.downloadAsync(
+        url,
+        FileSystem.documentDirectory + finalFileName
+      );
+      
+      if (downloadResult.status === 200) {
+        // Compartilhar o arquivo baixado
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(downloadResult.uri);
+        } else {
+          Alert.alert(
+            'Download Concluído',
+            `Arquivo salvo em: ${downloadResult.uri}`,
+            [{ text: 'OK' }]
+          );
+        }
+      } else {
+        throw new Error('Download falhou');
+      }
+    } catch (error) {
+      throw error;
+    }
+  };
+
+  const onFileDownload = ({ nativeEvent }) => {
+    const { downloadUrl } = nativeEvent;
+    console.log('📥 Download detectado pela WebView:', downloadUrl);
+    handleFileDownload(downloadUrl);
+  };
+
+  const getInjectedJavaScript = () => {
+    if (!isLoginScreen) return '';
+    
+    return `
+      (function() {
+        console.log('🔐 Script de captura de login injetado');
         
-        // Interceptar submissão de formulários de login
-        const forms = document.querySelectorAll('form');
-        forms.forEach(form => {
-          form.addEventListener('submit', function(e) {
-            try {
-              const loginField = form.querySelector('input[name="login"], input[name="email"], input[name="usuario"]');
-              const passwordField = form.querySelector('input[name="senha"], input[name="password"]');
-              
-              if (loginField && passwordField && window.ReactNativeWebView) {
-                window.ReactNativeWebView.postMessage(JSON.stringify({
-                  type: 'LOGIN_CREDENTIALS',
-                  login: loginField.value,
-                  password: passwordField.value
-                }));
-              }
-            } catch (error) {
-              console.error('Erro ao interceptar formulário:', error);
-            }
-          });
-        });
-        
-        // Interceptar logout
-        const logoutLinks = document.querySelectorAll('a[href*="logout"], a[href*="sair"]');
-        logoutLinks.forEach(link => {
-          link.addEventListener('click', function(e) {
-            try {
-              if (window.ReactNativeWebView) {
-                window.ReactNativeWebView.postMessage(JSON.stringify({
-                  type: 'LOGOUT'
-                }));
-              }
-            } catch (error) {
-              console.error('Erro ao interceptar logout:', error);
-            }
-          });
-        });
-        
-        // Detectar mudanças na URL que indicam login bem-sucedido
-        let currentUrl = window.location.href;
-        setInterval(() => {
-          if (window.location.href !== currentUrl) {
-            currentUrl = window.location.href;
-            if (!currentUrl.includes('login.php') && window.ReactNativeWebView) {
-              window.ReactNativeWebView.postMessage(JSON.stringify({
-                type: 'LOGIN_SUCCESS'
-              }));
-            }
-          }
-        }, 1000);
-        
-        // Interceptação robusta de downloads
-        function setupDownloadInterceptors() {
-          console.log('🔧 Configurando interceptadores de download');
+        // Função para capturar dados do formulário
+        function captureLoginData() {
+          const forms = document.querySelectorAll('form');
           
-          // Interceptar cliques em elementos de download
-          document.addEventListener('click', function(e) {
-            const target = e.target;
-            let shouldIntercept = false;
-            let url = '';
-            let filename = 'arquivo';
-            
-            console.log('🖱️ Clique detectado em:', target.tagName, target.textContent || target.value || '', target.className);
-            
-            // Verificar se é um link de download
-            if (target.tagName === 'A') {
-              console.log('🔗 Link detectado:', target.href);
-              if (target.href && (target.href.includes('.pdf') || target.href.includes('.csv') || target.download)) {
-                shouldIntercept = true;
-                url = target.href;
-                filename = target.download || target.textContent.trim() || 'arquivo';
-                console.log('✅ Link de download identificado:', url, filename);
-              }
-            }
-            
-            // Verificar se é um botão com onclick que pode gerar download
-            if (target.tagName === 'BUTTON' || target.tagName === 'INPUT' || target.type === 'submit') {
-              const text = target.textContent || target.value || '';
-              const onclick = target.getAttribute('onclick') || '';
-              const className = target.className || '';
-              
-              console.log('🔘 Botão/Input detectado:', {
-                text: text,
-                onclick: onclick,
-                className: className,
-                type: target.type
-              });
-              
-              if (text.toLowerCase().includes('exportar') || 
-                  text.toLowerCase().includes('download') ||
-                  text.toLowerCase().includes('pdf') ||
-                  text.toLowerCase().includes('csv') ||
-                  text.toLowerCase().includes('gerar') ||
-                  text.toLowerCase().includes('relatório') ||
-                  text.toLowerCase().includes('relatorio') ||
-                  onclick.includes('export') ||
-                  onclick.includes('download') ||
-                  onclick.includes('pdf') ||
-                  onclick.includes('csv') ||
-                  className.includes('export') ||
-                  className.includes('download')) {
+          forms.forEach(form => {
+            form.addEventListener('submit', function(e) {
+              try {
+                const formData = new FormData(form);
+                const loginField = form.querySelector('input[type="email"], input[name*="login"], input[name*="email"], input[name*="user"]');
+                const passwordField = form.querySelector('input[type="password"]');
                 
-                console.log('🎯 Botão de download detectado:', text);
-                
-                // Enviar mensagem imediatamente para notificar o clique
-                if (window.ReactNativeWebView) {
+                if (loginField && passwordField && loginField.value && passwordField.value) {
+                  const credentials = {
+                    login: loginField.value,
+                    password: passwordField.value
+                  };
+                  
+                  console.log('🔐 Credenciais capturadas:', credentials.login);
+                  
                   window.ReactNativeWebView.postMessage(JSON.stringify({
-                    type: 'DOWNLOAD_BUTTON_CLICKED',
-                    buttonText: text,
-                    timestamp: Date.now()
+                    type: 'LOGIN_ATTEMPT',
+                    credentials: credentials
                   }));
                 }
-                
-                // Monitorar por novos links criados dinamicamente
-                const checkForDownloads = () => {
-                  const newLinks = document.querySelectorAll('a[href*="blob:"], a[href*="data:"], a[download]');
-                  console.log('🔍 Verificando novos links de download:', newLinks.length);
-                  
-                  if (newLinks.length > 0) {
-                    const lastLink = newLinks[newLinks.length - 1];
-                    console.log('📎 Novo link encontrado:', lastLink.href);
-                    
-                    if (window.ReactNativeWebView) {
-                      window.ReactNativeWebView.postMessage(JSON.stringify({
-                        type: 'DOWNLOAD_FILE',
-                        url: lastLink.href,
-                        filename: lastLink.download || text || 'arquivo'
-                      }));
-                    }
-                  }
-                  
-                  // Verificar também por mudanças no window.location
-                  if (window.location.href.includes('download') || window.location.href.includes('export')) {
-                    console.log('🌐 URL de download detectada:', window.location.href);
-                    if (window.ReactNativeWebView) {
-                      window.ReactNativeWebView.postMessage(JSON.stringify({
-                        type: 'DOWNLOAD_FILE',
-                        url: window.location.href,
-                        filename: text || 'arquivo'
-                      }));
-                    }
-                  }
-                };
-                
-                // Verificar múltiplas vezes com intervalos diferentes
-                setTimeout(checkForDownloads, 500);
-                setTimeout(checkForDownloads, 1000);
-                setTimeout(checkForDownloads, 2000);
-                setTimeout(checkForDownloads, 3000);
-                setTimeout(checkForDownloads, 5000);
+              } catch (error) {
+                console.error('❌ Erro ao capturar credenciais:', error);
               }
-            }
-            
-            if (shouldIntercept && window.ReactNativeWebView) {
-              console.log('📥 Download interceptado:', url, filename);
-              window.ReactNativeWebView.postMessage(JSON.stringify({
-                type: 'DOWNLOAD_FILE',
-                url: url,
-                filename: filename
-              }));
-            }
+            });
           });
         }
         
-        // Configurar interceptadores
-        setupDownloadInterceptors();
+        // Executar quando a página carregar
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', captureLoginData);
+        } else {
+          captureLoginData();
+        }
         
-        // Interceptar criação de novos elementos (especialmente links de download)
-        const observer = new MutationObserver((mutations) => {
-          mutations.forEach((mutation) => {
-            if (mutation.type === 'childList') {
-              mutation.addedNodes.forEach((node) => {
-                if (node.nodeType === 1) { // Element node
-                  // Verificar se é um link de download
-                  if (node.tagName === 'A' && (node.href.includes('blob:') || node.href.includes('data:') || node.download)) {
-                    console.log('🆕 Novo link de download criado:', node.href);
-                    if (window.ReactNativeWebView) {
-                      window.ReactNativeWebView.postMessage(JSON.stringify({
-                        type: 'DOWNLOAD_FILE',
-                        url: node.href,
-                        filename: node.download || node.textContent || 'arquivo'
-                      }));
-                    }
-                  }
-                  
-                  // Verificar links dentro do novo elemento
-                  const newLinks = node.querySelectorAll ? node.querySelectorAll('a[href*="blob:"], a[href*="data:"], a[download]') : [];
-                  if (newLinks.length > 0) {
-                    console.log('🔗 Novos links encontrados em elemento adicionado:', newLinks.length);
-                    newLinks.forEach(link => {
-                      console.log('📎 Link encontrado:', link.href);
-                      if (window.ReactNativeWebView) {
-                        window.ReactNativeWebView.postMessage(JSON.stringify({
-                          type: 'DOWNLOAD_FILE',
-                          url: link.href,
-                          filename: link.download || link.textContent || 'arquivo'
-                        }));
-                      }
-                    });
-                  }
-                }
-              });
+        // Observar mudanças no DOM para formulários carregados dinamicamente
+        const observer = new MutationObserver(function(mutations) {
+          mutations.forEach(function(mutation) {
+            if (mutation.addedNodes.length > 0) {
+              captureLoginData();
             }
           });
-          
-          // Reconfigurar interceptadores para novos elementos
-          setupDownloadInterceptors();
         });
         
         observer.observe(document.body, {
           childList: true,
-          subtree: true,
-          attributes: true,
-          attributeFilter: ['href', 'download']
+          subtree: true
         });
         
-        // Interceptar mudanças na URL que podem indicar downloads
-        let lastUrl = window.location.href;
-        setInterval(() => {
-          if (window.location.href !== lastUrl) {
-            console.log('🌐 URL mudou:', window.location.href);
-            if (window.location.href.includes('download') || window.location.href.includes('export') || window.location.href.includes('blob:') || window.location.href.includes('data:')) {
-              console.log('📥 URL de download detectada:', window.location.href);
-              if (window.ReactNativeWebView) {
-                window.ReactNativeWebView.postMessage(JSON.stringify({
-                  type: 'DOWNLOAD_FILE',
-                  url: window.location.href,
-                  filename: 'arquivo_exportado'
-                }));
-              }
-            }
-            lastUrl = window.location.href;
-          }
-        }, 500);
-        
-      } catch (error) {
-        console.error('Erro no script:', error);
-      }
-      
-      return true;
-    })();
-  `;
+      })();
+      true;
+    `;
+  };
 
-  const renderLoading = () => (
-    <View style={styles.fullScreenLoadingContainer}>
-      {/* Botão Logout na tela de loading */}
-       <TouchableOpacity
-         style={styles.loadingLogoutButton}
-         onPress={handleBackToSplash}
-       >
-         <Text style={styles.logoutIcon}>✕</Text>
-       </TouchableOpacity>
-      
-      <View style={styles.loadingContent}>
-        <View style={styles.logoContainer}>
+  if (showBiometricPrompt) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor="#1a472a" />
+        <View style={styles.biometricContainer}>
           <Image 
-            source={require('../logo.png')} 
-            style={styles.logoImage}
+            source={require('./logo.png')} 
+            style={styles.logo}
             resizeMode="contain"
           />
+          <Text style={styles.biometricTitle}>Ativar Biometria?</Text>
+          <Text style={styles.biometricText}>
+            Deseja usar sua biometria para fazer login mais rapidamente?
+          </Text>
+          <View style={styles.biometricButtons}>
+            <TouchableOpacity 
+              style={[styles.button, styles.buttonSecondary]} 
+              onPress={() => handleBiometricPrompt(false)}
+            >
+              <Text style={styles.buttonSecondaryText}>Agora Não</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.button, styles.buttonPrimary]} 
+              onPress={() => handleBiometricPrompt(true)}
+            >
+              <Text style={styles.buttonPrimaryText}>Ativar</Text>
+            </TouchableOpacity>
+          </View>
         </View>
-        <ActivityIndicator size="large" color="#2E7D32" style={styles.loadingIndicator} />
-        <Text style={styles.loadingText}>
-          {isLoginScreen ? 'Carregando login...' :
-           isSignupScreen ? 'Carregando cadastro...' :
-           'Carregando Corpx Bank...'}
-        </Text>
-      </View>
-    </View>
-  );
-
-  const renderBiometricPrompt = () => (
-    <View style={styles.promptOverlay}>
-      <View style={styles.promptContainer}>
-        <Text style={styles.promptTitle}>Ativar Login Biométrico?</Text>
-        <Text style={styles.promptText}>
-          Deseja salvar seus dados de login e usar biometria nos próximos acessos?
-        </Text>
-        
-        <View style={styles.promptButtons}>
-          <TouchableOpacity
-            style={[styles.promptButton, styles.promptButtonSecondary]}
-            onPress={() => handleBiometricPrompt(false)}
-          >
-            <Text style={styles.promptButtonTextSecondary}>Não, obrigado</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity
-            style={[styles.promptButton, styles.promptButtonPrimary]}
-            onPress={() => handleBiometricPrompt(true)}
-          >
-            <Text style={styles.promptButtonText}>Sim, ativar</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    </View>
-  );
-
-  const handleBackToSplash = () => {
-    navigation.replace('Splash');
-  };
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#0E0E0E" translucent={false} />
+      <StatusBar barStyle="light-content" backgroundColor="#1a472a" />
       
-      {/* Botão Logout - só aparece quando não está carregando */}
-       {!isLoading && (
-         <TouchableOpacity
-           style={styles.logoutButton}
-           onPress={handleBackToSplash}
-         >
-           <Text style={styles.logoutIcon}>✕</Text>
-         </TouchableOpacity>
-       )}
+      {isLoading && (
+        <View style={styles.loadingContainer}>
+          <Image 
+            source={require('./logo.png')} 
+            style={styles.loadingLogo}
+            resizeMode="contain"
+          />
+          <ActivityIndicator size="large" color="#1a472a" style={styles.loadingSpinner} />
+          <Text style={styles.loadingText}>Carregando Corpx Bank...</Text>
+        </View>
+      )}
       
       <WebView
         ref={webViewRef}
         source={{ uri: initialUrl }}
         style={styles.webview}
+        onLoadStart={() => setIsLoading(true)}
+        onLoadEnd={() => setIsLoading(false)}
         onNavigationStateChange={handleNavigationStateChange}
         onMessage={handleMessage}
-        injectedJavaScript={injectedJavaScript}
+        onFileDownload={onFileDownload}
+        injectedJavaScript={getInjectedJavaScript()}
+
         javaScriptEnabled={true}
         domStorageEnabled={true}
         startInLoadingState={true}
-        renderLoading={renderLoading}
+        scalesPageToFit={true}
         allowsInlineMediaPlayback={true}
         mediaPlaybackRequiresUserAction={false}
-        allowsBackForwardNavigationGestures={true}
-        sharedCookiesEnabled={true}
-        thirdPartyCookiesEnabled={true}
-        allowFileAccess={true}
-        allowUniversalAccessFromFileURLs={true}
-        mixedContentMode="compatibility"
-        onLoadStart={() => setIsLoading(true)}
-        onLoadEnd={() => setIsLoading(false)}
-        onError={(syntheticEvent) => {
-          const { nativeEvent } = syntheticEvent;
-          console.error('❌ Erro na WebView:', nativeEvent);
-          
-          // Tentar recarregar em caso de erro
-          if (webViewRef.current) {
-            setTimeout(() => {
-              webViewRef.current.reload();
-            }, 2000);
-          }
-        }}
-        onHttpError={(syntheticEvent) => {
-          const { nativeEvent } = syntheticEvent;
-          console.error('❌ Erro HTTP na WebView:', nativeEvent);
-        }}
-        onRenderProcessGone={(syntheticEvent) => {
-          const { nativeEvent } = syntheticEvent;
-          console.error('❌ Processo WebView encerrado:', nativeEvent);
-          
-          // Recarregar WebView se o processo morrer
-          if (webViewRef.current) {
-            webViewRef.current.reload();
-          }
-        }}
-        userAgent="Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36 CorpxBankApp/1.0"
-        onShouldStartLoadWithRequest={(request) => {
-          try {
-            // Permitir todos os requests do domínio corpxbank.com.br
-            const isAllowed = request.url.includes('corpxbank.com.br') || 
-                             request.url.startsWith('data:') ||
-                             request.url.startsWith('blob:') ||
-                             request.url.startsWith('https://') ||
-                             request.url.startsWith('http://');
-            
-            console.log('🌐 Request:', request.url, 'Permitido:', isAllowed);
-            return isAllowed;
-          } catch (error) {
-            console.error('❌ Erro ao validar request:', error);
-            return false;
-          }
-        }}
+        allowsDownload={true}
+        onError={handleError}
+        onRenderProcessGone={handleRenderProcessGone}
+        onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
+        userAgent="Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36 CorpxBank/1.0"
       />
       
-      {showBiometricPrompt && renderBiometricPrompt()}
+      {!isLoading && currentUrl.includes('inicial.php') && (
+        <TouchableOpacity 
+          style={styles.logoutButton} 
+          onPress={handleLogout}
+        >
+          <Text style={styles.logoutButtonText}>Sair</Text>
+        </TouchableOpacity>
+      )}
     </SafeAreaView>
   );
 }
@@ -713,143 +451,108 @@ export default function CorpxWebViewScreen({ navigation, route }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0E0E0E',
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
+    backgroundColor: '#1a472a',
   },
   webview: {
     flex: 1,
   },
   loadingContainer: {
-    flex: 1,
-    backgroundColor: '#0E0E0E',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  fullScreenLoadingContainer: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: '#0E0E0E',
-    zIndex: 999,
-  },
-  loadingContent: {
-    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  loadingLogoutButton: {
-     position: 'absolute',
-     top: 50,
-     right: 20,
-     backgroundColor: 'rgba(220, 53, 69, 0.9)',
-     width: 40,
-     height: 40,
-     borderRadius: 20,
-     justifyContent: 'center',
-     alignItems: 'center',
-     zIndex: 1001,
-     borderWidth: 1,
-     borderColor: 'rgba(255, 255, 255, 0.3)',
-   },
-  loadingText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    marginTop: 20,
-    textAlign: 'center',
-  },
-  logoContainer: {
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  logoImage: {
-    width: 120,
-    height: 60,
-  },
-  loadingIndicator: {
-    marginBottom: 10,
-  },
-  promptOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: '#0A0A0A',
     zIndex: 1000,
   },
-  promptContainer: {
-    backgroundColor: '#1A1A1A',
-    margin: 20,
-    padding: 20,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#333333',
-  },
-  promptTitle: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 10,
-  },
-  promptText: {
-    color: '#CCCCCC',
-    fontSize: 14,
-    textAlign: 'center',
+  loadingLogo: {
+    width: 120,
+    height: 120,
     marginBottom: 20,
-    lineHeight: 20,
   },
-  promptButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  loadingSpinner: {
+    marginBottom: 15,
   },
-  promptButton: {
-    flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 6,
-    marginHorizontal: 5,
-    alignItems: 'center',
-  },
-  promptButtonPrimary: {
-    backgroundColor: '#2E7D32',
-  },
-  promptButtonSecondary: {
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: '#666666',
-  },
-  promptButtonText: {
+  loadingText: {
+    fontSize: 16,
     color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  promptButtonTextSecondary: {
-    color: '#CCCCCC',
-    fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '500',
+    textAlign: 'center',
   },
   logoutButton: {
     position: 'absolute',
-    top: 50,
+    top: Platform.OS === 'ios' ? 50 : 30,
     right: 20,
-    backgroundColor: 'rgba(220, 53, 69, 0.9)',
-    width: 40,
-    height: 40,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    paddingHorizontal: 15,
+    paddingVertical: 8,
     borderRadius: 20,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+  },
+  logoutButtonText: {
+    color: '#1a472a',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  biometricContainer: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 1000,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
+    padding: 30,
+    backgroundColor: '#fff',
   },
-  logoutIcon: {
-    color: '#FFFFFF',
-    fontSize: 18,
+  logo: {
+    width: 120,
+    height: 120,
+    marginBottom: 30,
+  },
+  biometricTitle: {
+    fontSize: 24,
     fontWeight: 'bold',
+    color: '#1a472a',
+    marginBottom: 15,
+    textAlign: 'center',
+  },
+  biometricText: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 30,
+    lineHeight: 24,
+  },
+  biometricButtons: {
+    flexDirection: 'row',
+    gap: 15,
+  },
+  button: {
+    paddingHorizontal: 30,
+    paddingVertical: 12,
+    borderRadius: 25,
+    minWidth: 120,
+    alignItems: 'center',
+  },
+  buttonPrimary: {
+    backgroundColor: '#1a472a',
+  },
+  buttonSecondary: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#1a472a',
+  },
+  buttonPrimaryText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  buttonSecondaryText: {
+    color: '#1a472a',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

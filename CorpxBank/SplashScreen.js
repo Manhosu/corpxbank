@@ -11,15 +11,19 @@ import {
 } from 'react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
 import * as SecureStore from 'expo-secure-store';
-import Constants from 'expo-constants';
+import { Constants } from 'expo-constants';
 
 const { width, height } = Dimensions.get('window');
 
 const SESSION_KEY = 'corpxbank_session';
 const LOGIN_STATUS_KEY = 'corpxbank_logged';
 const BIOMETRIC_KEY = 'biometriaAtiva';
+const BIOMETRIC_TIMESTAMP_KEY = 'biometria_timestamp';
 const LOGIN_KEY = 'login';
 const PASSWORD_KEY = 'senha';
+
+// 30 dias em milissegundos
+const BIOMETRIC_EXPIRY_TIME = 30 * 24 * 60 * 60 * 1000;
 
 export default function SplashScreen({ navigation }) {
   const [isLoading, setIsLoading] = useState(false);
@@ -69,11 +73,34 @@ export default function SplashScreen({ navigation }) {
   const checkSavedBiometricData = async () => {
     try {
       const biometricActive = await SecureStore.getItemAsync(BIOMETRIC_KEY);
+      const biometricTimestamp = await SecureStore.getItemAsync(BIOMETRIC_TIMESTAMP_KEY);
       const savedLogin = await SecureStore.getItemAsync(LOGIN_KEY);
       const savedPassword = await SecureStore.getItemAsync(PASSWORD_KEY);
       
+      // Verificar se a biometria expirou (30 dias)
+      let isBiometricValid = false;
+      if (biometricActive === 'true' && biometricTimestamp) {
+        const timestamp = parseInt(biometricTimestamp);
+        const currentTime = Date.now();
+        const timeDiff = currentTime - timestamp;
+        
+        if (timeDiff < BIOMETRIC_EXPIRY_TIME) {
+          isBiometricValid = true;
+          console.log('🔒 Biometria válida, expira em:', Math.ceil((BIOMETRIC_EXPIRY_TIME - timeDiff) / (24 * 60 * 60 * 1000)), 'dias');
+        } else {
+          console.log('⏰ Biometria expirada, limpando dados...');
+          // Limpar dados biométricos expirados
+          await Promise.all([
+            SecureStore.deleteItemAsync(BIOMETRIC_KEY),
+            SecureStore.deleteItemAsync(BIOMETRIC_TIMESTAMP_KEY),
+            SecureStore.deleteItemAsync(LOGIN_KEY),
+            SecureStore.deleteItemAsync(PASSWORD_KEY)
+          ]);
+        }
+      }
+      
       setHasBiometricData(
-        biometricActive === 'true' && 
+        isBiometricValid && 
         savedLogin && 
         savedPassword
       );
@@ -148,31 +175,39 @@ export default function SplashScreen({ navigation }) {
       await SecureStore.setItemAsync(LOGIN_STATUS_KEY, 'true');
       
       console.log('✅ Login biométrico realizado com sucesso');
-      navigation.replace('WebView');
+      
+      // Simular loading rápido antes de navegar
+      setTimeout(() => {
+        navigation.replace('WebView', {
+          initialUrl: 'https://corpxbank.com.br/inicial.php'
+        });
+      }, 800);
     } catch (error) {
       console.error('❌ Erro no login automático:', error);
       Alert.alert('Erro', 'Falha no login automático');
+      setIsLoading(false);
     }
   };
 
   const handleLogin = () => {
-    // Redirecionar para a página de login onde o usuário fará o login
-    navigation.replace('WebView', { 
-      initialUrl: 'https://corpxbank.com.br/login.php',
-      isLoginScreen: true
-    });
+    setIsLoading(true);
+    
+    // Redirecionar direto para login via webview
+    setTimeout(() => {
+      navigation.replace('WebView', {
+        initialUrl: 'https://corpxbank.com.br/login.php'
+      });
+    }, 500);
   };
 
-  const handleRegister = () => {
-    navigation.navigate('Register');
-  };
+
 
   return (
     <View style={styles.container}>
       {/* Logo */}
       <View style={styles.logoContainer}>
         <Image 
-          source={require('../logo.png')} 
+          source={require('./logo.png')} 
           style={styles.logoImage}
           resizeMode="contain"
         />
@@ -182,45 +217,29 @@ export default function SplashScreen({ navigation }) {
         Simples, segura e sem complicações
       </Text>
 
-      {/* Botões */}
+      {/* Botão de Login */}
       <View style={styles.buttonsContainer}>
-        {/* Botão Biometria */}
-        {biometricSupported && hasBiometricData && (
-          <TouchableOpacity
-            style={[styles.button, styles.biometricButton]}
-            onPress={handleBiometricLogin}
-            disabled={isLoading}
-          >
-            {isLoading ? (
-              <ActivityIndicator color="#FFFFFF" size="small" />
-            ) : (
-              <>
-                <Text style={styles.biometricIcon}>👆</Text>
-                <Text style={styles.buttonText}>Entrar com Biometria</Text>
-              </>
-            )}
-          </TouchableOpacity>
-        )}
-
-        {/* Botão Entrar */}
         <TouchableOpacity
           style={[styles.button, styles.loginButton]}
           onPress={handleLogin}
           disabled={isLoading}
         >
-          <Text style={styles.buttonText}>Entrar</Text>
+          {isLoading ? (
+            <ActivityIndicator color="#FFFFFF" size="small" />
+          ) : (
+            <>
+              {hasLoggedInBefore && biometricSupported && hasBiometricData && (
+                <Text style={styles.biometricIcon}>👆</Text>
+              )}
+              <Text style={styles.buttonText}>
+                {hasLoggedInBefore && biometricSupported && hasBiometricData 
+                  ? "Fazer login com biometria" 
+                  : "Entrar"
+                }
+              </Text>
+            </>
+          )}
         </TouchableOpacity>
-
-        {/* Botão Criar Conta - só aparece se nunca fez login */}
-        {!hasLoggedInBefore && (
-          <TouchableOpacity
-            style={[styles.button, styles.registerButton]}
-            onPress={handleRegister}
-            disabled={isLoading}
-          >
-            <Text style={[styles.buttonText, styles.registerButtonText]}>Criar conta</Text>
-          </TouchableOpacity>
-        )}
       </View>
 
       {/* Informações adicionais */}
@@ -236,7 +255,7 @@ export default function SplashScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A0A0A',
+    backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 24,
@@ -258,7 +277,7 @@ const styles = StyleSheet.create({
     height: 180,
   },
   subtitle: {
-    color: '#E0E0E0',
+    color: '#333333',
     fontSize: 18,
     textAlign: 'center',
     marginBottom: 60,
@@ -298,6 +317,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#2E7D32',
     borderColor: '#4CAF50',
     shadowColor: '#2E7D32',
+    flexDirection: 'row',
+    justifyContent: 'center',
   },
   registerButton: {
     backgroundColor: '#1B5E20',
@@ -331,11 +352,9 @@ const styles = StyleSheet.create({
     maxWidth: 320,
   },
   infoText: {
-    color: '#B0B0B0',
-    fontSize: 15,
+    color: '#666666',
+    fontSize: 16,
     marginBottom: 8,
     textAlign: 'center',
-    fontWeight: '500',
-    letterSpacing: 0.3,
   },
 });

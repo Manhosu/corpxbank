@@ -38,7 +38,7 @@ class ErrorBoundary extends React.Component {
   handleShowDetails = () => {
     Alert.alert(
       'Detalhes do Erro',
-      `${this.state.error?.toString()}\n\n${this.state.errorInfo?.componentStack}`,
+      (this.state.error?.toString() || '') + '\n\n' + (this.state.errorInfo?.componentStack || ''),
       [{ text: 'OK' }]
     );
   };
