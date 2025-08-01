@@ -32,12 +32,13 @@
     "react-native-paper": "^5.14.5",
     "react-native-safe-area-context": "5.4.0",
     "react-native-screens": "~4.11.1",
-    "react-native-text-input-mask": "^3.2.0",
     "react-native-webview": "13.13.5",
-    "expo-media-library": "~17.1.7"
+    "expo-media-library": "~17.1.7",
+    "expo-dev-client": "~5.2.4"
   },
   "devDependencies": {
-    "@babel/core": "^7.20.0"
+    "@babel/core": "^7.20.0",
+    "eas-cli": "^10.1.0"
   },
   "private": true
 }

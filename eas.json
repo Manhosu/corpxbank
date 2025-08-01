@@ -29,7 +29,21 @@
         "image": "latest"
       },
       "env": {
-        "NODE_ENV": "production"
+        "NODE_ENV": "production",
+        "EXPO_USE_NEW_ARCHITECTURE": "0"
+      }
+    },
+
+    "ios-test": {
+      "ios": {
+        "simulator": false,
+        "image": "latest",
+        "credentialsSource": "remote"
+      },
+      "distribution": "internal",
+      "env": {
+        "NODE_ENV": "development",
+        "EXPO_USE_HERMES": "0"
       }
     },
     "simple": {
